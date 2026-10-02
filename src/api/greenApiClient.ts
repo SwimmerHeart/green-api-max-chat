@@ -118,7 +118,11 @@ export class GreenApiClient {
   }
 
   // Отправка текстового сообщения в чат
-  async sendMessage(chatId: string, message: string, signal?: AbortSignal): Promise<SendMessageResult> {
+  async sendMessage(
+    chatId: string,
+    message: string,
+    signal?: AbortSignal,
+  ): Promise<SendMessageResult> {
     return this.send<SendMessageResult>('sendMessage', {
       method: 'POST',
       body: { chatId, message },
