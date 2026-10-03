@@ -7,6 +7,8 @@ interface ChatListScreenProps {
   // Свой номер, чтобы видеть, под каким аккаунтом открыт чат
   accountPhone: string | null
   isForeignHistory: boolean
+  // Текст ошибки поллинга, если связь с GREEN-API пропала
+  connectionError: string | null
   onSelectChat: (chat: Chat) => void
   onCreateChat: () => void
 }
@@ -26,6 +28,7 @@ export function ChatListScreen({
   messages,
   accountPhone,
   isForeignHistory,
+  connectionError,
   onSelectChat,
   onCreateChat,
 }: ChatListScreenProps) {
@@ -50,6 +53,12 @@ export function ChatListScreen({
         </button>
       </header>
 
+      {connectionError !== null && (
+        <p className="mx-4 mb-1 rounded-xl bg-max-danger/10 px-4 py-2 text-xs text-max-danger">
+          {connectionError}
+        </p>
+      )}
+
       {isForeignHistory ? (
         <p className="m-4 rounded-xl bg-max-surface px-4 py-3 text-sm text-max-muted">
           История прошлого аккаунта скрыта.
@@ -60,35 +69,60 @@ export function ChatListScreen({
         </p>
       ) : (
         <ul className="flex flex-col gap-1 p-2">
-          {sortedChats.map((chat) => {
-            const lastMessage = messages[chat.chatId]?.at(-1)
-
-            return (
-              <li key={chat.chatId}>
-                <button
-                  type="button"
-                  onClick={() => onSelectChat(chat)}
-                  className="flex w-full flex-col gap-1 rounded-xl bg-max-surface px-4 py-3 text-left transition-colors hover:bg-black/5 cursor-pointer"
-                >
-                  <span className="flex items-baseline justify-between gap-3">
-                    <span className="truncate font-medium text-max-text">
-                      {chat.displayName ?? chat.title}
-                    </span>
-                    <span className="shrink-0 text-xs text-max-muted">
-                      {formatWhen(chat.updatedAt)}
-                    </span>
-                  </span>
-                  <span className="truncate text-sm text-max-muted">
-                    {lastMessage === undefined ? 'Сообщений пока нет' : lastMessage.text}
-                  </span>
-                </button>
-              </li>
-            )
-          })}
+          {sortedChats.map((chat) => (
+            <li key={chat.chatId}>
+              <ChatRow
+                chat={chat}
+                lastMessage={messages[chat.chatId]?.at(-1)}
+                onSelect={() => onSelectChat(chat)}
+              />
+            </li>
+          ))}
         </ul>
       )}
     </main>
   )
+}
+
+interface ChatRowProps {
+  chat: Chat
+  lastMessage: MessagesByChat[string][number] | undefined
+  onSelect: () => void
+}
+
+function ChatRow({ chat, lastMessage, onSelect }: ChatRowProps) {
+  const title = chat.displayName || chat.title || chat.phone
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="flex w-full items-center gap-3 rounded-xl bg-max-surface px-4 py-3 text-left transition-colors hover:bg-black/5 cursor-pointer"
+    >
+      <div className="min-w-0 flex-1">
+        <span className="flex items-baseline justify-between gap-3">
+          <span className="truncate font-medium text-max-text">{title}</span>
+          <span className="shrink-0 text-xs text-max-muted">{formatWhen(chat.updatedAt)}</span>
+        </span>
+        <span className="mt-0.5 flex items-center justify-between gap-3">
+          <span className="truncate text-sm text-max-muted">{previewOf(lastMessage)}</span>
+          {chat.unread > 0 && (
+            <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-max-accent px-1.5 text-[11px] font-medium text-white">
+              {chat.unread > 99 ? '99+' : chat.unread}
+            </span>
+          )}
+        </span>
+      </div>
+    </button>
+  )
+}
+
+function previewOf(message: MessagesByChat[string][number] | undefined): string {
+  if (message === undefined) return 'Сообщений пока нет'
+
+  const prefix = message.direction === 'outgoing' ? 'Вы: ' : ''
+
+  return `${prefix}${message.text}`
 }
 
 // Сегодняшние чаты показываем временем, остальные датой

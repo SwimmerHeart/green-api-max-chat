@@ -1,14 +1,45 @@
-import type { Chat } from '../types'
+import { useMemo } from 'react'
+import { Composer } from './Composer'
+import { MessageList } from './MessageList'
+import type { GreenApiClient } from '../api/greenApiClient'
+import type { MessagesUpdater } from '../hooks/useChatPolling'
+import { useSendMessage } from '../hooks/useSendMessage'
+import { formatPhone } from '../lib/phone'
+import type { Chat, ChatMessage } from '../types'
 
 interface ChatScreenProps {
   chat: Chat
+  client: GreenApiClient
+  messages: ChatMessage[]
+  onMessagesChange: (update: MessagesUpdater) => void
   onBack: () => void
+  connectionError: string | null
 }
 
-export function ChatScreen({ chat, onBack }: ChatScreenProps) {
+export function ChatScreen({
+  chat,
+  client,
+  messages,
+  onMessagesChange,
+  onBack,
+  connectionError,
+}: ChatScreenProps) {
+  const { send, retry, discard, isSending } = useSendMessage({
+    client,
+    chatId: chat.chatId,
+    onMessagesChange,
+  })
+
+  const subtitle = useMemo(() => {
+    // Пустое имя от API не должно оставлять заголовок без текста
+    const name = chat.displayName || formatPhone(chat.phone)
+
+    return name.length > 0 ? name : 'Собеседник'
+  }, [chat.displayName, chat.phone])
+
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-md flex-col bg-max-canvas">
-      <header className="flex items-center gap-2 px-4 py-3">
+      <header className="flex items-center gap-2 border-b border-black/5 bg-max-surface px-3 py-2.5">
         <button
           type="button"
           onClick={onBack}
@@ -16,12 +47,24 @@ export function ChatScreen({ chat, onBack }: ChatScreenProps) {
         >
           Назад
         </button>
-        <h1 className="truncate text-lg font-semibold text-max-text">{chat.title}</h1>
+
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-base font-semibold text-max-text">{subtitle}</h1>
+          {connectionError !== null && (
+            <p className="truncate text-[11px] text-max-danger">{connectionError}</p>
+          )}
+        </div>
       </header>
 
-      <p className="m-4 rounded-xl bg-max-surface px-4 py-3 text-sm text-max-muted">
-        Сообщений пока нет.
-      </p>
+      <MessageList
+        key={chat.chatId}
+        messages={messages}
+        emptyHint={chat.phone.length > 0 ? chat.phone : chat.chatId}
+        onRetry={(message) => void retry(message)}
+        onDiscard={discard}
+      />
+
+      <Composer onSend={send} isSending={isSending} />
     </main>
   )
 }

@@ -76,9 +76,11 @@ export function loadChats(idInstance: string): Chat[] {
   const data = readJson<Chat[]>(chatsKey(idInstance), [])
   if (!Array.isArray(data)) return []
 
-  // Поле displayName добавили позже. Для старых записей подставляем null,
-  // чтобы список не показывал вместо имени undefined
-  return data.map((chat) => ({ ...chat, displayName: chat.displayName ?? null }))
+  return data.map((chat) => ({
+    ...chat,
+    displayName: chat.displayName ?? null,
+    unread: Number.isFinite(chat.unread) ? chat.unread : 0,
+  }))
 }
 
 export function saveChats(idInstance: string, chats: Chat[]): void {
@@ -88,7 +90,21 @@ export function saveChats(idInstance: string, chats: Chat[]): void {
 export function loadMessages(idInstance: string): MessagesByChat {
   const data = readJson<MessagesByChat>(messagesKey(idInstance), {})
   if (typeof data !== 'object' || data === null) return {}
-  return data
+
+  const normalized: MessagesByChat = {}
+
+  for (const [chatId, list] of Object.entries(data)) {
+    if (!Array.isArray(list)) continue
+
+    normalized[chatId] = list.map((message) => ({
+      ...message,
+      stanzaId: message.stanzaId ?? null,
+      failureReason: message.failureReason ?? null,
+      deleted: message.deleted === true,
+    }))
+  }
+
+  return normalized
 }
 
 export function saveMessages(idInstance: string, messages: MessagesByChat): void {

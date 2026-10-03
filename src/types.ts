@@ -2,11 +2,14 @@ export interface ChatMessage {
   // У входящих равен idMessage из уведомления, у исходящих сначала временный,
   // потом подменяется настоящим, который вернул sendMessage
   id: string
+  stanzaId: string | null
   chatId: string
   direction: 'incoming' | 'outgoing'
   text: string
   timestamp: number
   status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
+  failureReason: string | null
+  deleted: boolean
 }
 
 export interface Chat {
@@ -18,6 +21,7 @@ export interface Chat {
   phone: string
   title: string
   displayName: string | null
+  unread: number
   createdAt: number
   updatedAt: number
 }

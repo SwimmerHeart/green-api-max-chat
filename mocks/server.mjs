@@ -60,6 +60,12 @@ const isOutsideMax = (chatId) => peerOf(chatId).endsWith('0')
 
 const notifications = []
 let messageCounter = 0
+let receiptCounter = 1000
+
+// Висящие receiveNotification. Настоящий API держит соединение, пока событие не пришло
+const waitingReceivers = []
+
+const nextReceiptId = () => ++receiptCounter
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -97,8 +103,20 @@ function readBody(req) {
   })
 }
 
+// Отпускаем висящие receiveNotification сразу, как появилось уведомление.
+// Иначе клиент ждал бы весь receiveTimeout и не видел бы события вовремя
+function flushWaitingReceivers() {
+  while (notifications.length > 0 && waitingReceivers.length > 0) {
+    const receiver = waitingReceivers.shift()
+
+    clearTimeout(receiver.timer)
+    send(receiver.res, 200, { receiptId: nextReceiptId(), body: notifications[0] })
+  }
+}
+
 function pushNotification(body) {
   notifications.push(body)
+  flushWaitingReceivers()
 }
 
 const nowInSeconds = () => Math.floor(Date.now() / 1000)
@@ -116,12 +134,13 @@ function senderDataFor(chatId) {
   }
 }
 
-function incomingTextMessage({ chatId, text }) {
+function incomingTextMessage({ chatId, text, stanzaId }) {
   return {
     typeWebhook: 'incomingMessageReceived',
     instanceData,
     timestamp: nowInSeconds(),
-    idMessage: `INCOMING${String(++messageCounter).padStart(6, '0')}`,
+    // stanzaId позволяет заранее задать идентификатор, чтобы потом проверить удаление
+    idMessage: stanzaId ?? `INCOMING${String(++messageCounter).padStart(6, '0')}`,
     senderData: senderDataFor(chatId),
     messageData: {
       typeMessage: 'textMessage',
@@ -186,7 +205,7 @@ const server = http.createServer(async (req, res) => {
 
   // Служебные маршруты для тестов, работают без токена
   if (req.url === '/mock/incoming') {
-    const { chatId, text } = await readBody(req)
+    const { chatId, text, stanzaId } = await readBody(req)
 
     if (typeof chatId !== 'string' || chatId.length === 0) {
       sendError(res, 400, 'VALIDATION_FAILED', "Parameter 'chatId' is required")
@@ -197,6 +216,7 @@ const server = http.createServer(async (req, res) => {
       incomingTextMessage({
         chatId,
         text: typeof text === 'string' && text.length > 0 ? text : 'Сообщение от собеседника',
+        stanzaId: typeof stanzaId === 'string' && stanzaId.length > 0 ? stanzaId : undefined,
       }),
     )
 
@@ -328,17 +348,23 @@ const server = http.createServer(async (req, res) => {
         ? Math.min(requestedTimeout, 60) * 1000
         : 5000
 
-    const notification = notifications[0]
-
-    if (notification === undefined) {
-      setTimeout(() => send(res, 200, null), timeout)
+    if (notifications.length > 0) {
+      send(res, 200, { receiptId: nextReceiptId(), body: notifications[0] })
       return
     }
 
-    send(res, 200, {
-      receiptId: 1000 + notifications.length,
-      body: notification,
-    })
+    // Очередь пуста: держим соединение и ждем либо уведомление, либо таймаут
+    const receiver = { res, timer: null }
+
+    receiver.timer = setTimeout(() => {
+      const index = waitingReceivers.indexOf(receiver)
+
+      if (index !== -1) waitingReceivers.splice(index, 1)
+
+      send(res, 200, null)
+    }, timeout)
+
+    waitingReceivers.push(receiver)
     return
   }
 
@@ -353,6 +379,15 @@ const server = http.createServer(async (req, res) => {
 
 function shutdown() {
   fs.rmSync(PID_FILE, { force: true })
+
+  // Висящие соединения не дают серверу закрыться, отпускаем их пустым ответом
+  for (const receiver of waitingReceivers) {
+    clearTimeout(receiver.timer)
+    send(receiver.res, 200, null)
+  }
+
+  waitingReceivers.length = 0
+
   server.closeAllConnections()
   server.close(() => process.exit(0))
 }

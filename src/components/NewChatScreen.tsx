@@ -41,11 +41,14 @@ export function NewChatScreen({ client, onCreated, onCancel }: NewChatScreenProp
       const now = Date.now()
       const title = formatPhone(phone)
 
+      const displayName = typeof result.username === 'string' && result.username.length > 0 ? result.username : null
+
       onCreated({
         chatId: result.chatId,
         phone: title,
         title,
-        displayName: null,
+        displayName,
+        unread: 0,
         createdAt: now,
         updatedAt: now,
       })
