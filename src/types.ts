@@ -1,22 +1,23 @@
-// Направление сообщения относительно пользователя
-export type MessageDirection = 'incoming' | 'outgoing'
-
-// Статус сообщения в интерфейсе
-export type MessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
-
 export interface ChatMessage {
+  // У входящих равен idMessage из уведомления, у исходящих сначала временный,
+  // потом подменяется настоящим, который вернул sendMessage
   id: string
   chatId: string
-  direction: MessageDirection
+  direction: 'incoming' | 'outgoing'
   text: string
   timestamp: number
-  status: MessageStatus
+  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
 }
 
 export interface Chat {
+  // Сохраняем ровно то, что вернул API: @c.us или @lid.
+  // Формат не приводим к единому виду, иначе потеряем выданный идентификатор
   chatId: string
+  // Номер в том виде, в каком его ввел пользователь при создании чата.
+  // Может быть пустым, если идентификатор пришел не из проверки номера
   phone: string
   title: string
+  displayName: string | null
   createdAt: number
   updatedAt: number
 }

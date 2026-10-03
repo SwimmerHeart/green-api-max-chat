@@ -4,93 +4,121 @@ export interface Credentials {
   apiTokenInstance: string
 }
 
-// Ответ метода getAccountSettings
-export interface AccountSettings {
-  stateInstance: string
+// Состояние инстанса по документации GREEN-API
+export type InstanceState =
+  'notAuthorized' | 'authorized' | 'blocked' | 'sleepMode' | 'starting' | 'suspended'
+
+// Ответ метода getWaSettings
+export interface WaSettings {
+  stateInstance: InstanceState
+  // Телефон приходит строкой, в документации пример "0123456789"
   phone?: string
   avatar?: string
+  // При enableLidMode вместо номера приходит @lid
   chatId?: string
-  name?: string
+  historySyncProgress?: number
+  // Только при stateInstance suspended, время в секундах UNIX
+  suspendedUntil?: number
 }
 
-// Ответ метода checkAccount
-// Вызывается перед созданием чата, чтобы убедиться, что номер зарегистрирован в MAX
-export interface CheckAccountResult {
-  // Зарегистрирован ли номер в MAX
-  exist: boolean
-  // Идентификатор чата, по нему хранится история переписки
+// Ответ метода checkWhatsapp
+// Вызывается перед созданием чата, чтобы убедиться, что номер доступен для переписки
+export interface CheckWhatsappResult {
+  existsWhatsapp: boolean
   chatId: string
+  username?: string
   fromCache?: boolean
 }
 
-// Ответ метода sendMessage.
+// Ответ метода sendMessage
 export interface SendMessageResult {
   idMessage: string
 }
 
 // Статус доставки исходящего сообщения
 export type DeliveryStatus =
-  'sent' | 'delivered' | 'read' | 'failed' | 'noAccount' | 'notInGroup' | 'deleted'
+  'sent' | 'delivered' | 'read' | 'failed' | 'noAccount' | 'notInGroup' | 'suspended'
 
-// Общая часть уведомлений.
+// Общая часть уведомлений
 interface BaseWebhook {
   timestamp?: number
+  instanceData?: {
+    idInstance?: number
+    wid?: string
+    typeInstance?: string
+  }
 }
 
-// Входящее текстовое сообщение от собеседника
+// Данные отправителя внутри уведомления
+interface SenderData {
+  chatId?: string
+  sender?: string
+  chatName?: string
+  senderName?: string
+  senderContactName?: string
+}
+
+// Данные удаленного сообщения, приходит внутри messageData
+export interface DeletedMessageData {
+  stanzaId: string
+}
+
+export interface TextMessageData {
+  typeMessage: 'textMessage'
+  textMessageData: {
+    // Сам текст, лежит на третьем уровне вложенности
+    textMessage: string
+  }
+}
+
+export interface DeletedMessagePayload {
+  typeMessage: 'deletedMessage'
+  deletedMessageData: DeletedMessageData
+}
+
+// Поддерживаемые типы входящих сообщений
+export type IncomingMessageContent = TextMessageData | DeletedMessagePayload
+
+// Уведомление о входящем сообщении или удалении
 export interface IncomingMessageWebhook extends BaseWebhook {
   typeWebhook: 'incomingMessageReceived'
-  chatId: string
-  chatType?: string
-  // Данные отправителя внутри этого чата
-  senderData: {
-    chatId?: string
-    phone?: string
-    pushName?: string
-    avatar?: string
-  }
-  // typeMessage обязательно проверяется перед доступом к textMessageData
-  messageData: {
-    typeMessage: 'textMessage'
-    textMessageData: {
-      // Сам текст, лежит на третьем уровне вложенности
-      textMessage: string
-    }
-  }
+  // Идентификатор сообщения лежит на верхнем уровне, а не внутри messageData.
+  // По нему же ищем сообщение в истории, поэтому поле обязательное
+  idMessage: string
+  senderData?: SenderData
+  messageData: IncomingMessageContent
 }
 
-// Уведомление о смене статуса уже отправленного сообщения.
+// Уведомление о смене статуса уже отправленного сообщения
 export interface OutgoingStatusWebhook extends BaseWebhook {
   typeWebhook: 'outgoingMessageStatus'
-  // Идентификатор, по которому ищем наше сообщение в истории.
-  // У входящих сообщений идентификатора нет, он генерируется на клиенте
-  idMessage: string
   chatId: string
+  idMessage: string
   status: DeliveryStatus
   description?: string
+  // Отправлено ли сообщение через API, а не с телефона
+  sendByApi?: boolean
 }
 
-// Уведомление о смене состояния инстанса, например выход из аккаунта.
-export interface StateInstanceWebhook {
+// Уведомление о смене состояния инстанса, например выход из аккаунта
+export interface StateInstanceWebhook extends BaseWebhook {
   typeWebhook: 'stateInstanceChanged'
-  stateInstance: string
-}
-
-// Уведомление об удалении сообщения
-export interface MessageDeletedWebhook extends BaseWebhook {
-  typeWebhook: 'messageDeleted'
-  idMessage: string
-  chatId: string
-  deleteForAll?: boolean
+  stateInstance: InstanceState
 }
 
 // Все поддерживаемые тела уведомлений
-export type NotificationBody =
-  IncomingMessageWebhook | OutgoingStatusWebhook | StateInstanceWebhook | MessageDeletedWebhook
+export type NotificationBody = IncomingMessageWebhook | OutgoingStatusWebhook | StateInstanceWebhook
 
-// Ответ метода receiveNotification.
+// Ответ метода receiveNotification
 export interface NotificationEnvelope {
-  // Идентификатор уведомления, нужен для подтверждения через deleteNotification.
+  // Идентификатор уведомления, нужен для подтверждения через deleteNotification
   receiptId?: number
   body: NotificationBody
+}
+
+// Тело ошибки по документации: code, message и status со значением error
+export interface ApiErrorBody {
+  code?: string
+  message?: string
+  status?: string
 }

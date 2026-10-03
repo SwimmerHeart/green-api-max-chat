@@ -71,7 +71,9 @@ export function ChatListScreen({
                   className="flex w-full flex-col gap-1 rounded-xl bg-max-surface px-4 py-3 text-left transition-colors hover:bg-black/5 cursor-pointer"
                 >
                   <span className="flex items-baseline justify-between gap-3">
-                    <span className="truncate font-medium text-max-text">{chat.title}</span>
+                    <span className="truncate font-medium text-max-text">
+                      {chat.displayName ?? chat.title}
+                    </span>
                     <span className="shrink-0 text-xs text-max-muted">
                       {formatWhen(chat.updatedAt)}
                     </span>

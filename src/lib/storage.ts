@@ -74,7 +74,11 @@ export function saveLastInstanceId(idInstance: string): void {
 
 export function loadChats(idInstance: string): Chat[] {
   const data = readJson<Chat[]>(chatsKey(idInstance), [])
-  return Array.isArray(data) ? data : []
+  if (!Array.isArray(data)) return []
+
+  // Поле displayName добавили позже. Для старых записей подставляем null,
+  // чтобы список не показывал вместо имени undefined
+  return data.map((chat) => ({ ...chat, displayName: chat.displayName ?? null }))
 }
 
 export function saveChats(idInstance: string, chats: Chat[]): void {

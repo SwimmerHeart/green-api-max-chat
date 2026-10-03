@@ -12,6 +12,7 @@ const MOCK_DIR = path.dirname(fileURLToPath(import.meta.url))
 const PID_FILE = path.join(MOCK_DIR, '.mock.pid')
 
 const MOCK_SIGNATURE = `mocks${path.sep}server.mjs`
+
 const MAX_ATTEMPTS = 15
 const RETRY_DELAY_MS = 200
 
@@ -48,10 +49,14 @@ function stopPreviousMock() {
   }
 }
 
-const isMissingAccount = (phone) => String(phone).endsWith('9')
-const isOutsideMax = (phone) => String(phone).endsWith('0')
-const toChatId = (phone) => `${String(phone).replace(/\D/g, '')}@c.us`
-const isOutsideMaxPeer = (chatId) => isOutsideMax(String(chatId).split('@')[0])
+// Принимаем и голый номер, и 79991234567@c.us, и 123456789@lid
+const peerOf = (chatId) => String(chatId).split('@')[0]
+
+// Номер на 9: аккаунта нет, checkWhatsapp вернет ошибку
+const isMissingAccount = (chatId) => peerOf(chatId).endsWith('9')
+
+// Номер на 0: аккаунт вне MAX, при отправке придет noAccount
+const isOutsideMax = (chatId) => peerOf(chatId).endsWith('0')
 
 const notifications = []
 let messageCounter = 0
@@ -65,12 +70,17 @@ const cors = {
 const instanceData = {
   idInstance: Number(ID_INSTANCE),
   wid: `${ACCOUNT_PHONE}@c.us`,
-  typeInstance: 'v3',
+  typeInstance: 'whatsapp',
 }
 
 function send(res, status, body) {
   res.writeHead(status, { ...cors, 'Content-Type': 'application/json' })
   res.end(body === null ? '' : JSON.stringify(body))
+}
+
+// Тело ошибки в формате документации: code, message и status со значением error
+function sendError(res, status, code, message) {
+  send(res, status, { code, message, status: 'error' })
 }
 
 function readBody(req) {
@@ -91,6 +101,73 @@ function pushNotification(body) {
   notifications.push(body)
 }
 
+const nowInSeconds = () => Math.floor(Date.now() / 1000)
+
+function senderDataFor(chatId) {
+  const peer = peerOf(chatId)
+  const name = `Собеседник ${peer.slice(-4)}`
+
+  return {
+    chatId,
+    sender: `${peer}@c.us`,
+    chatName: name,
+    senderName: name,
+    senderContactName: '',
+  }
+}
+
+function incomingTextMessage({ chatId, text }) {
+  return {
+    typeWebhook: 'incomingMessageReceived',
+    instanceData,
+    timestamp: nowInSeconds(),
+    idMessage: `INCOMING${String(++messageCounter).padStart(6, '0')}`,
+    senderData: senderDataFor(chatId),
+    messageData: {
+      typeMessage: 'textMessage',
+      textMessageData: {
+        textMessage: text,
+      },
+    },
+  }
+}
+
+function incomingDeletedMessage({ chatId, stanzaId }) {
+  return {
+    typeWebhook: 'incomingMessageReceived',
+    instanceData,
+    timestamp: nowInSeconds(),
+    idMessage: `DELETED${String(++messageCounter).padStart(6, '0')}`,
+    senderData: senderDataFor(chatId),
+    messageData: {
+      typeMessage: 'deletedMessage',
+      deletedMessageData: { stanzaId },
+    },
+  }
+}
+
+function outgoingStatus({ chatId, idMessage, status, description }) {
+  return {
+    typeWebhook: 'outgoingMessageStatus',
+    instanceData,
+    timestamp: nowInSeconds(),
+    chatId,
+    idMessage,
+    status,
+    sendByApi: true,
+    ...(description === undefined ? {} : { description }),
+  }
+}
+
+function stateInstanceChanged(stateInstance) {
+  return {
+    typeWebhook: 'stateInstanceChanged',
+    instanceData,
+    timestamp: nowInSeconds(),
+    stateInstance,
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   // Браузер спрашивает разрешение перед запросом с JSON-телом
   if (req.method === 'OPTIONS') {
@@ -107,36 +184,49 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  // Служебные маршруты для тестов, работают без токена
   if (req.url === '/mock/incoming') {
     const { chatId, text } = await readBody(req)
 
     if (typeof chatId !== 'string' || chatId.length === 0) {
-      send(res, 400, { status: false, reason: 'Parameter chatId is required' })
+      sendError(res, 400, 'VALIDATION_FAILED', "Parameter 'chatId' is required")
       return
     }
 
-    const peerPhone = chatId.split('@')[0]
-
-    pushNotification({
-      typeWebhook: 'incomingMessageReceived',
-      instanceData,
-      timestamp: Date.now(),
-      chatId,
-      chatType: 'inChat',
-      senderData: {
+    pushNotification(
+      incomingTextMessage({
         chatId,
-        phone: peerPhone,
-        pushName: `Собеседник ${peerPhone.slice(-4)}`,
-        avatar: '',
-      },
-      messageData: {
-        typeMessage: 'textMessage',
-        textMessageData: {
-          textMessage:
-            typeof text === 'string' && text.length > 0 ? text : 'Сообщение от собеседника',
-        },
-      },
-    })
+        text: typeof text === 'string' && text.length > 0 ? text : 'Сообщение от собеседника',
+      }),
+    )
+
+    send(res, 200, { result: true })
+    return
+  }
+
+  if (req.url === '/mock/deleted') {
+    const { chatId, stanzaId } = await readBody(req)
+
+    if (typeof chatId !== 'string' || typeof stanzaId !== 'string') {
+      sendError(res, 400, 'VALIDATION_FAILED', "Parameters 'chatId' and 'stanzaId' are required")
+      return
+    }
+
+    pushNotification(incomingDeletedMessage({ chatId, stanzaId }))
+
+    send(res, 200, { result: true })
+    return
+  }
+
+  if (req.url === '/mock/state') {
+    const { stateInstance } = await readBody(req)
+
+    if (typeof stateInstance !== 'string') {
+      sendError(res, 400, 'VALIDATION_FAILED', "Parameter 'stateInstance' is required")
+      return
+    }
+
+    pushNotification(stateInstanceChanged(stateInstance))
 
     send(res, 200, { result: true })
     return
@@ -146,36 +236,44 @@ const server = http.createServer(async (req, res) => {
 
   const instanceId = instanceSegment?.replace('waInstance', '') ?? ''
 
-  // Неверные доступы отвечаем кодом 400 с status: false
+  // Неверные доступы отвечаем кодом 400 в документированном формате
   if (instanceId !== ID_INSTANCE || token !== API_TOKEN) {
-    send(res, 400, { status: false, reason: 'Parameter apiTokenInstance not define' })
+    sendError(res, 400, 'BAD_REQUEST', 'Parameter apiTokenInstance not define')
     return
   }
 
-  if (method === 'getAccountSettings') {
+  // Метод проверки состояния инстанса называется getWaSettings
+  if (method === 'getWaSettings') {
     send(res, 200, {
       stateInstance: 'authorized',
       phone: ACCOUNT_PHONE,
       avatar: '',
       chatId: `${ACCOUNT_PHONE}@c.us`,
-      name: 'Тестовый аккаунт',
+      historySyncProgress: 100,
+      logoutProcess: false,
     })
     return
   }
 
-  if (method === 'checkAccount') {
-    const { phoneNumber } = await readBody(req)
+  // Метод проверки номера называется checkWhatsapp и возвращает existsWhatsapp
+  if (method === 'checkWhatsapp') {
+    const { chatId } = await readBody(req)
 
-    // Аккаунта в WhatsApp нет: настоящий API отвечает кодом 400
-    if (isMissingAccount(phoneNumber)) {
-      send(res, 400, { status: false, reason: 'Account is not registered' })
+    if (typeof chatId !== 'string' || chatId.length === 0) {
+      sendError(res, 400, 'VALIDATION_FAILED', "Parameter 'chatId' is required")
+      return
+    }
+
+    // Аккаунта нет: настоящий API отвечает кодом 400
+    if (isMissingAccount(chatId)) {
+      sendError(res, 400, 'BAD_REQUEST', 'Account is not registered')
       return
     }
 
     send(res, 200, {
-      exist: true,
-      status: 'ok',
-      chatId: toChatId(phoneNumber),
+      existsWhatsapp: true,
+      chatId,
+      username: '',
       fromCache: false,
     })
     return
@@ -184,8 +282,13 @@ const server = http.createServer(async (req, res) => {
   if (method === 'sendMessage') {
     const { chatId, message } = await readBody(req)
 
-    if (!chatId || typeof message !== 'string' || message.length > 4000) {
-      send(res, 400, { status: false, reason: 'Validation failed' })
+    if (!chatId || typeof message !== 'string' || message.length > 20000) {
+      sendError(
+        res,
+        400,
+        'VALIDATION_FAILED',
+        "Validation failed. Details: 'message' length must be less than or equal to 20000 characters long",
+      )
       return
     }
 
@@ -193,63 +296,42 @@ const server = http.createServer(async (req, res) => {
     messageCounter += 1
     send(res, 200, { idMessage })
 
-    const outsideMax = isOutsideMaxPeer(chatId)
+    const outsideMax = isOutsideMax(chatId)
 
     setTimeout(() => {
       if (outsideMax) return
 
-      const peerPhone = String(chatId).split('@')[0]
-
-      pushNotification({
-        typeWebhook: 'incomingMessageReceived',
-        instanceData,
-        timestamp: Date.now(),
-        chatId,
-        chatType: 'inChat',
-        senderData: {
-          chatId,
-          phone: peerPhone,
-          pushName: `Собеседник ${peerPhone.slice(-4)}`,
-          avatar: '',
-        },
-        messageData: {
-          typeMessage: 'textMessage',
-          textMessageData: { textMessage: `Ответ на: ${message}` },
-        },
-      })
+      pushNotification(incomingTextMessage({ chatId, text: `Ответ на: ${message}` }))
     }, 400)
 
     // Сначала delivered, потом read, чтобы проверить обе галочки
     setTimeout(() => {
-      pushNotification({
-        typeWebhook: 'outgoingMessageStatus',
-        instanceData,
-        timestamp: Date.now(),
-        chatId,
-        idMessage,
-        status: 'delivered',
-      })
+      pushNotification(outgoingStatus({ chatId, idMessage, status: 'delivered' }))
     }, 900)
 
     setTimeout(() => {
-      pushNotification({
-        typeWebhook: 'outgoingMessageStatus',
-        instanceData,
-        timestamp: Date.now(),
-        chatId,
-        idMessage,
-        status: outsideMax ? 'noAccount' : 'read',
-      })
+      pushNotification(
+        outsideMax
+          ? outgoingStatus({ chatId, idMessage, status: 'noAccount' })
+          : outgoingStatus({ chatId, idMessage, status: 'read' }),
+      )
     }, 1600)
 
     return
   }
 
   if (method === 'receiveNotification') {
+    const query = new URL(req.url, 'http://localhost').searchParams
+    const requestedTimeout = Number(query.get('receiveTimeout'))
+    const timeout =
+      Number.isFinite(requestedTimeout) && requestedTimeout >= 5
+        ? Math.min(requestedTimeout, 60) * 1000
+        : 5000
+
     const notification = notifications[0]
 
     if (notification === undefined) {
-      setTimeout(() => send(res, 200, null), 500)
+      setTimeout(() => send(res, 200, null), timeout)
       return
     }
 
@@ -266,7 +348,7 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  send(res, 404, { status: false, reason: `Unknown method: ${method}` })
+  sendError(res, 404, 'NOT_FOUND', `Unknown method: ${method}`)
 })
 
 function shutdown() {
@@ -306,7 +388,7 @@ server.listen(PORT, () => {
 
   console.log(`GREEN-API mock on http://localhost:${PORT}`)
   console.log(`idInstance: ${ID_INSTANCE}, apiTokenInstance: ${API_TOKEN}`)
-  console.log('Номер на 9: аккаунта нет, checkAccount вернет ошибку')
+  console.log('Номер на 9: аккаунта нет, checkWhatsapp вернет ошибку')
   console.log('Номер на 0: аккаунт вне MAX, при отправке придет noAccount')
-  console.log('Служебное: POST /mock/reset, POST /mock/incoming с { chatId, text }')
+  console.log('Служебное: POST /mock/reset, /mock/incoming, /mock/deleted, /mock/state')
 })

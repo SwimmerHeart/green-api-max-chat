@@ -1,9 +1,9 @@
 import type {
-  AccountSettings,
-  CheckAccountResult,
+  CheckWhatsappResult,
   Credentials,
   NotificationEnvelope,
   SendMessageResult,
+  WaSettings,
 } from './types'
 
 // Универсальный класс ошибок с GREEN-API: сетевых сбоев и ответов API с ошибкой
@@ -19,6 +19,9 @@ export class GreenApiError extends Error {
 
 type HttpMethod = 'GET' | 'POST' | 'DELETE'
 
+export const MAX_MESSAGE_LENGTH = 20000
+export const MIN_RECEIVE_TIMEOUT = 5
+
 interface RequestOptions {
   method: HttpMethod
   body?: unknown
@@ -27,17 +30,28 @@ interface RequestOptions {
   signal?: AbortSignal
 }
 
-// Достаем текст ошибки reason из тела ответа
-function readReason(payload: unknown): string | undefined {
+// Достаем текст ошибки из тела ответа.
+// В документации поле называется message, но часть ошибок приходит с reason,
+// поэтому берем message первым и падаем на reason только если message нет
+function readErrorMessage(payload: unknown): string | undefined {
   if (typeof payload !== 'object' || payload === null) return undefined
-  const reason = (payload as { reason?: unknown }).reason
-  return typeof reason === 'string' && reason.length > 0 ? reason : undefined
+
+  const { message, reason } = payload as { message?: unknown; reason?: unknown }
+
+  if (typeof message === 'string' && message.length > 0) return message
+  if (typeof reason === 'string' && reason.length > 0) return reason
+
+  return undefined
 }
 
-// Проверяем признак ошибки в теле ответа
+// Проверяем признак ошибки в теле ответа.
+// Документированное значение status равно error, но встречается и status: false
 function isErrorPayload(payload: unknown): boolean {
   if (typeof payload !== 'object' || payload === null) return false
-  return (payload as { status?: unknown }).status === false
+
+  const status = (payload as { status?: unknown }).status
+
+  return status === 'error' || status === false
 }
 
 export class GreenApiClient {
@@ -90,29 +104,32 @@ export class GreenApiClient {
 
     if (!response.ok) {
       throw new GreenApiError(
-        readReason(payload) ?? `Запрос к GREEN-API не выполнен (HTTP ${response.status})`,
+        readErrorMessage(payload) ?? `Запрос к GREEN-API не выполнен (HTTP ${response.status})`,
         response.status,
       )
     }
 
     // Ловим ошибку, пришедшую с кодом 200
     if (isErrorPayload(payload)) {
-      throw new GreenApiError(readReason(payload) ?? 'GREEN-API вернул ошибку', response.status)
+      throw new GreenApiError(
+        readErrorMessage(payload) ?? 'GREEN-API вернул ошибку',
+        response.status,
+      )
     }
 
     return payload as T
   }
 
   // Проверка доступов и состояния инстанса
-  getAccountSettings(signal?: AbortSignal): Promise<AccountSettings> {
-    return this.send<AccountSettings>('getAccountSettings', { method: 'GET', signal })
+  getWaSettings(signal?: AbortSignal): Promise<WaSettings> {
+    return this.send<WaSettings>('getWaSettings', { method: 'GET', signal })
   }
 
-  // Проверка, зарегистрирован ли номер в MAX, и получение chatId для чата
-  async checkAccount(phoneNumber: number, signal?: AbortSignal): Promise<CheckAccountResult> {
-    return this.send<CheckAccountResult>('checkAccount', {
+  // Проверка доступности номера и получение chatId для чата
+  async checkWhatsapp(chatId: string, signal?: AbortSignal): Promise<CheckWhatsappResult> {
+    return this.send<CheckWhatsappResult>('checkWhatsapp', {
       method: 'POST',
-      body: { phoneNumber },
+      body: { chatId },
       signal,
     })
   }
@@ -130,7 +147,8 @@ export class GreenApiClient {
     })
   }
 
-  // Запрос висит до 25 секунд и при отсутствии новых событий возвращает пустое тело
+  // Запрос висит до 25 секунд и при отсутствии новых событий возвращает пустое тело.
+  // По документации допустимый диапазон receiveTimeout от 5 до 60 секунд
   async receiveNotification(
     receiveTimeout = 25,
     signal?: AbortSignal,
