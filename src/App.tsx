@@ -1,34 +1,127 @@
 import './index.css'
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { ChatListScreen } from './components/ChatListScreen'
+import { ChatScreen } from './components/ChatScreen'
 import { ConnectScreen } from './components/ConnectScreen'
+import { NewChatScreen } from './components/NewChatScreen'
+import { GreenApiClient } from './api/greenApiClient'
 import type { Credentials } from './api/types'
-import { useSession } from './hooks/useSession'
-import { saveCredentials } from './lib/storage'
+import { useAccountStatus } from './hooks/useAccountStatus'
+import {
+  loadChats,
+  loadCredentials,
+  loadLastInstanceId,
+  loadMessages,
+  saveChats,
+  saveCredentials,
+  saveLastInstanceId,
+} from './lib/storage'
+import type { Chat, MessagesByChat } from './types'
+
+type Screen = 'list' | 'newChat'
 
 function App() {
-  const { credentials, accountPhone } = useSession()
-  const [isConnected, setIsConnected] = useState(false)
+  const [credentials, setCredentials] = useState<Credentials | null>(() => loadCredentials())
+  const { status, accountPhone } = useAccountStatus(credentials)
 
-  // Сохраняем доступы только те, что прошли проверку на экране подключения
+  const idInstance = credentials?.idInstance ?? null
+
+  const [chats, setChats] = useState<Chat[]>(() =>
+    idInstance === null ? [] : loadChats(idInstance),
+  )
+  const [messages, setMessages] = useState<MessagesByChat>(() =>
+    idInstance === null ? {} : loadMessages(idInstance),
+  )
+  const [screen, setScreen] = useState<Screen>('list')
+  const [activeChat, setActiveChat] = useState<Chat | null>(null)
+
+  const [isForeignHistory, setIsForeignHistory] = useState(() => {
+    if (idInstance === null) return false
+    const lastInstanceId = loadLastInstanceId()
+    return lastInstanceId !== null && lastInstanceId !== idInstance
+  })
+
+  const client = useMemo(
+    () => (credentials === null ? null : new GreenApiClient(credentials)),
+    [credentials],
+  )
+
   const handleConnected = useCallback((next: Credentials) => {
+    // Сравниваем с прошлым инстансом до перезаписи, иначе предупреждение всегда ложно
+    const previousInstanceId = loadLastInstanceId()
+    setIsForeignHistory(previousInstanceId !== null && previousInstanceId !== next.idInstance)
+
     saveCredentials(next)
-    setIsConnected(true)
+    saveLastInstanceId(next.idInstance)
+
+    // Перечитываем историю - после смены аккаунта она другая
+    setChats(loadChats(next.idInstance))
+    setMessages(loadMessages(next.idInstance))
+    setActiveChat(null)
+    setScreen('list')
+
+    setCredentials(next)
   }, [])
 
-  if (credentials === null || !isConnected) return <ConnectScreen onConnected={handleConnected} />
+  const handleChatCreated = useCallback(
+    (chat: Chat) => {
+      if (credentials === null) return
+
+      setChats((previous) => {
+        const next = [chat, ...previous.filter((item) => item.chatId !== chat.chatId)]
+        saveChats(credentials.idInstance, next)
+        return next
+      })
+
+      setActiveChat(chat)
+    },
+    [credentials],
+  )
+
+  const handleBackFromChat = useCallback(() => setActiveChat(null), [])
+
+  if (credentials === null || client === null)
+    return <ConnectScreen onConnected={handleConnected} />
+
+  // Сессия из хранилища еще не проверена
+  if (status === 'checking')
+    return (
+      <main className="flex min-h-svh items-center justify-center bg-max-canvas">
+        <p className="text-sm text-max-muted">Проверяем доступы...</p>
+      </main>
+    )
+
+  // Доступы сохраняем, чтобы пользователь просто нажал Подключить еще раз после QR
+  if (status === 'unauthorized')
+    return (
+      <ConnectScreen
+        onConnected={handleConnected}
+        initialCredentials={credentials}
+        notice="Инстанс не авторизован в MAX. Отсканируй QR-код в личном кабинете GREEN-API и нажмите Подключить еще раз."
+      />
+    )
+
+  if (activeChat !== null) return <ChatScreen chat={activeChat} onBack={handleBackFromChat} />
+
+  if (screen === 'newChat') {
+    return (
+      <NewChatScreen
+        client={client}
+        onCreated={handleChatCreated}
+        onCancel={() => setScreen('list')}
+      />
+    )
+  }
 
   return (
-    <main className="flex min-h-svh items-center justify-center">
-      <div className="w-full max-w-md rounded-2xl bg-max-surface p-6 shadow-sm ring-1 ring-black/5">
-        <h1 className="text-2xl font-semibold text-max-text">Инстанс подключён</h1>
-        <p className="mt-2 text-sm text-max-muted">
-          {accountPhone ? `Номер аккаунта ${accountPhone}` : 'Номер аккаунта неизвестен'}
-        </p>
-        <p className="mt-1 text-sm text-max-muted">
-          Следующий шаг: создание чата по номеру телефона.
-        </p>
-      </div>
-    </main>
+    <ChatListScreen
+      chats={chats}
+      messages={messages}
+      accountPhone={accountPhone}
+      isForeignHistory={isForeignHistory}
+      onSelectChat={setActiveChat}
+      onCreateChat={() => setScreen('newChat')}
+    />
   )
 }
 

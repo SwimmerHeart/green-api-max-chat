@@ -1,11 +1,24 @@
 import type { Credentials } from '../api/types'
+import type { Chat, MessagesByChat } from '../types'
 
 // Префикс ключей, чтобы не пересекаться с чужими данными на том же домене
 const PREFIX = 'maxchat'
 const CREDENTIALS_KEY = `${PREFIX}:credentials`
-const CHATS_KEY = `${PREFIX}:chats`
+const LAST_INSTANCE_KEY = `${PREFIX}:lastInstance`
 
 export const DEFAULT_API_URL = 'https://api.green-api.com'
+
+// Количество сообщений держим на один чат
+const MAX_MESSAGES_PER_CHAT = 500
+
+// История привязана к инстансу: в одном браузере могут работать два разных аккаунта GREEN-API
+function chatsKey(idInstance: string): string {
+  return `${PREFIX}:chats:${idInstance}`
+}
+
+function messagesKey(idInstance: string): string {
+  return `${PREFIX}:messages:${idInstance}`
+}
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -25,6 +38,14 @@ function writeJson(key: string, value: unknown): void {
   }
 }
 
+function removeKey(key: string): void {
+  try {
+    window.localStorage.removeItem(key)
+  } catch {
+    // хранилище недоступно
+  }
+}
+
 export function loadCredentials(): Credentials | null {
   const data = readJson<Partial<Credentials> | null>(CREDENTIALS_KEY, null)
   if (!data) return null
@@ -37,27 +58,41 @@ export function saveCredentials(credentials: Credentials): void {
   writeJson(CREDENTIALS_KEY, credentials)
 }
 
-// Выход из аккаунта: токен удаляем, историю чатов оставляем.
-// Она не содержит доступа к инстансу и полезна при следующем подключении.
+// Выход из аккаунта - токен удаляем, историю оставляем
 export function clearCredentials(): void {
-  try {
-    window.localStorage.removeItem(CREDENTIALS_KEY)
-  } catch {
-    // хранилище недоступно
-  }
+  removeKey(CREDENTIALS_KEY)
 }
 
-export interface StoredChat {
-  chatId: string
-  phone: string
-  title: string
+// Последний инстанс, под которым работали в этом браузере, чтобы после переключения аккаунта не показывать чужую историю
+export function loadLastInstanceId(): string | null {
+  return readJson<string | null>(LAST_INSTANCE_KEY, null)
 }
 
-export function loadChats(): StoredChat[] {
-  const data = readJson<StoredChat[]>(CHATS_KEY, [])
+export function saveLastInstanceId(idInstance: string): void {
+  writeJson(LAST_INSTANCE_KEY, idInstance)
+}
+
+export function loadChats(idInstance: string): Chat[] {
+  const data = readJson<Chat[]>(chatsKey(idInstance), [])
   return Array.isArray(data) ? data : []
 }
 
-export function saveChats(chats: StoredChat[]): void {
-  writeJson(CHATS_KEY, chats)
+export function saveChats(idInstance: string, chats: Chat[]): void {
+  writeJson(chatsKey(idInstance), chats)
+}
+
+export function loadMessages(idInstance: string): MessagesByChat {
+  const data = readJson<MessagesByChat>(messagesKey(idInstance), {})
+  if (typeof data !== 'object' || data === null) return {}
+  return data
+}
+
+export function saveMessages(idInstance: string, messages: MessagesByChat): void {
+  const trimmed: MessagesByChat = {}
+
+  for (const [chatId, list] of Object.entries(messages)) {
+    trimmed[chatId] = list.slice(-MAX_MESSAGES_PER_CHAT)
+  }
+
+  writeJson(messagesKey(idInstance), trimmed)
 }

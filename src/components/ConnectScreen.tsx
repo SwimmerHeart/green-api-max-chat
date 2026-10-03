@@ -6,12 +6,17 @@ import { DEFAULT_API_URL } from '../lib/storage'
 
 interface ConnectScreenProps {
   onConnected: (credentials: Credentials) => void
+  // Подставляем прошлые доступы, чтобы не вводить их заново после QR
+  initialCredentials?: Credentials
+  notice?: string
 }
 
-export function ConnectScreen({ onConnected }: ConnectScreenProps) {
-  const [apiUrl, setApiUrl] = useState(DEFAULT_API_URL)
-  const [idInstance, setIdInstance] = useState('')
-  const [apiTokenInstance, setApiTokenInstance] = useState('')
+export function ConnectScreen({ onConnected, initialCredentials, notice }: ConnectScreenProps) {
+  const [apiUrl, setApiUrl] = useState(initialCredentials?.apiUrl ?? DEFAULT_API_URL)
+  const [idInstance, setIdInstance] = useState(initialCredentials?.idInstance ?? '')
+  const [apiTokenInstance, setApiTokenInstance] = useState(
+    initialCredentials?.apiTokenInstance ?? '',
+  )
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -102,6 +107,12 @@ export function ConnectScreen({ onConnected }: ConnectScreenProps) {
             />
           </label>
         </div>
+
+        {notice !== undefined && (
+          <p className="mt-4 rounded-lg bg-max-surface px-3 py-2 text-sm text-max-muted ring-1 ring-black/5">
+            {notice}
+          </p>
+        )}
 
         {error !== null && (
           <p
