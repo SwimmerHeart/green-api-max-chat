@@ -80,6 +80,9 @@ const instanceData = {
 }
 
 function send(res, status, body) {
+  // Ответ может уйти в сокет, который клиент уже закрыл
+  if (res.writableEnded || res.destroyed) return
+
   res.writeHead(status, { ...cors, 'Content-Type': 'application/json' })
   res.end(body === null ? '' : JSON.stringify(body))
 }
@@ -103,6 +106,42 @@ function readBody(req) {
   })
 }
 
+// Клиент закрыл соединение сам: снимаем ожидание, иначе в очереди остаются
+// мертвые сокеты и уведомление уходит в никуда
+function releaseReceiver(receiver) {
+  clearTimeout(receiver.timer)
+
+  const index = waitingReceivers.indexOf(receiver)
+
+  if (index !== -1) waitingReceivers.splice(index, 1)
+}
+
+// Отдаем уведомление и следим за ним до подтверждения: клиент мог закрыть
+// соединение, не успев подтвердить, и событие потерялось бы молча
+function serveQueued(res, entry) {
+  res.on('close', () => {
+    const index = notifications.indexOf(entry)
+
+    if (index === -1) return
+
+    notifications.splice(index, 1)
+    notifications.unshift(entry)
+    flushWaitingReceivers()
+  })
+
+  send(res, 200, { receiptId: entry.receiptId, body: entry.body })
+}
+
+// Клиент отменил запрос, но сокет еще не помечен как закрытый: такие ответы
+// отдавать нельзя, иначе уведомление уйдет в никуда
+function isReceiverAlive(receiver) {
+  const socket = receiver.res.socket
+
+  if (socket === null || socket === undefined || socket.destroyed) return false
+
+  return !receiver.res.writableEnded
+}
+
 // Отпускаем висящие receiveNotification сразу, как появилось уведомление.
 // Иначе клиент ждал бы весь receiveTimeout и не видел бы события вовремя
 function flushWaitingReceivers() {
@@ -110,12 +149,16 @@ function flushWaitingReceivers() {
     const receiver = waitingReceivers.shift()
 
     clearTimeout(receiver.timer)
-    send(receiver.res, 200, { receiptId: nextReceiptId(), body: notifications[0] })
+
+    // Сокет уже мертв: уведомление заберет следующий ожидающий или следующий запрос
+    if (!isReceiverAlive(receiver)) continue
+
+    serveQueued(receiver.res, notifications[0])
   }
 }
 
 function pushNotification(body) {
-  notifications.push(body)
+  notifications.push({ receiptId: nextReceiptId(), body })
   flushWaitingReceivers()
 }
 
@@ -196,6 +239,15 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Служебные маршруты для тестов, работают без токена
+  if (req.url === '/mock/status') {
+    send(res, 200, {
+      queue: notifications.length,
+      waiters: waitingReceivers.length,
+      alive: waitingReceivers.filter(isReceiverAlive).length,
+    })
+    return
+  }
+
   if (req.url === '/mock/reset') {
     notifications.length = 0
     messageCounter = 0
@@ -252,7 +304,11 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  const [instanceSegment, method, token] = req.url.split('?')[0].split('/').filter(Boolean)
+  // Четвертый сегмент есть только у deleteNotification: там receiptId в адресе
+  const [instanceSegment, method, token, pathValue] = req.url
+    .split('?')[0]
+    .split('/')
+    .filter(Boolean)
 
   const instanceId = instanceSegment?.replace('waInstance', '') ?? ''
 
@@ -349,7 +405,7 @@ const server = http.createServer(async (req, res) => {
         : 5000
 
     if (notifications.length > 0) {
-      send(res, 200, { receiptId: nextReceiptId(), body: notifications[0] })
+      serveQueued(res, notifications[0])
       return
     }
 
@@ -357,19 +413,25 @@ const server = http.createServer(async (req, res) => {
     const receiver = { res, timer: null }
 
     receiver.timer = setTimeout(() => {
-      const index = waitingReceivers.indexOf(receiver)
-
-      if (index !== -1) waitingReceivers.splice(index, 1)
+      releaseReceiver(receiver)
 
       send(res, 200, null)
     }, timeout)
+
+    res.on('close', () => releaseReceiver(receiver))
 
     waitingReceivers.push(receiver)
     return
   }
 
   if (method === 'deleteNotification') {
-    notifications.shift()
+    const receiptId = Number(pathValue)
+    const index = notifications.findIndex((entry) => entry.receiptId === receiptId)
+
+    // Удаляем по receiptId, а не по позиции: иначе повторное подтверждение
+    // съело бы следующее уведомление, которое клиент еще не прочитал
+    if (index !== -1) notifications.splice(index, 1)
+
     send(res, 200, { result: true })
     return
   }
