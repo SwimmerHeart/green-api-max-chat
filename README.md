@@ -1,73 +1,160 @@
-# React + TypeScript + Vite
+# Тестовое задание: чат для MAX на GREEN-API
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Пользовательский интерфейс для отправки и получения текстовых сообщений в
+мессенджере MAX через сервис GREEN-API.
 
-Currently, two official plugins are available:
+Приложение целиком статическое: собирается в набор файлов, работает в браузере
+и не требует своего бэкенда или базы данных.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Демо: https://swimmerheart.github.io/green-api-max-chat/
 
-## React Compiler
+## Стек
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+React 19, TypeScript, Vite, Tailwind CSS 4.
 
-## Expanding the ESLint configuration
+## Локальный запуск
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Приложение откроется на http://localhost:5173.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Нужен адрес API, `idInstance` и токен инстанса. Без реального аккаунта их даёт
+мок, который поднимается во втором терминале:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run mock
 ```
+
+Данные для мока:
+
+| Поле         | Значение                |
+| ------------ | ----------------------- |
+| Адрес API    | `http://localhost:8787` |
+| `idInstance` | `1100000001`            |
+| Токен        | `testToken`             |
+
+Мок сам отвечает на входящие, поэтому сценарий целиком проигрывается локально:
+после отправки сообщения он присылает ответ, а затем статусы `delivered` и
+`read`.
+
+Служебные маршруты мока, работают без токена:
+
+```bash
+# входящее сообщение в чат 81234567
+curl -X POST http://localhost:8787/mock/incoming \
+  -H 'Content-Type: application/json' \
+  -d '{"chatId":"81234567","text":"Привет из мока"}'
+
+# удаление сообщения
+curl -X POST http://localhost:8787/mock/deleted \
+  -H 'Content-Type: application/json' \
+  -d '{"chatId":"81234567","stanzaId":"INCOMING000001"}'
+
+# смена состояния инстанса
+curl -X POST http://localhost:8787/mock/state \
+  -H 'Content-Type: application/json' \
+  -d '{"stateInstance":"notAuthorized"}'
+```
+
+Особые номера в моке: заканчивается на 9 — аккаунта в MAX нет, `CheckAccount`
+вернет `exist: false`; заканчивается на 0 — аккаунт вне MAX, при отправке
+придет статус `noAccount`.
+
+Остальные команды:
+
+```bash
+npm run typecheck      # проверка типов
+npm run lint           # eslint
+npm run format         # prettier
+npm run build          # сборка в dist
+npm run preview        # предпросмотр сборки
+```
+
+## Настройка инстанса в GREEN-API
+
+Инстанс создается и авторизуется в личном кабинете: создать инстанс для МАХ и
+отсканировать QR-код в мессенджере. Приложение только запрашивает
+`idInstance` и токен, само ничего не создает.
+
+Для приема уведомлений у инстанса должны стоять такие настройки:
+
+- `webhookUrl` - пустое значение, получаем через HTTP API, а не вебхуком;
+- `incomingWebhook`, `outgoingWebhook`, `stateWebhook` - `yes`.
+
+Это можно выставить в кабинете или методом `SetSettings`. Если эти настройки
+выключены, входящие не придут вообще: приложение не сможет отличить "тишину"
+от "поломки".
+
+## Как пользоваться
+
+1. Открыть страницу и заполнить адрес API, `idInstance` и токен.
+2. Нажать «Подключить». Если инстанс не авторизован, приложение скажет об
+   этом и предложит отсканировать QR-код в кабинете.
+3. Создать чат по номеру телефона получателя. Номер проверяется методом
+   `CheckAccount`, он же возвращает `chatId` для отправки.
+4. Написать сообщения. Входящие приходят в ленту автоматически.
+
+## Требования задания
+
+| Требование                                     | Где реализовано                                                                            |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Интерфейс отправки и получения сообщений в MAX | `src/App.tsx`, `src/components/`                                                           |
+| Работа через GREEN-API                         | `src/api/greenApiClient.ts`                                                                |
+| Только текстовые сообщения                     | `src/components/Composer.tsx`, вложений и медиа нет                                        |
+| Прототип чата с web.max.ru                     | `src/index.css` - цвета и отступы, `src/components/MessageList.tsx` — лента и пузыри       |
+| Минимальный набор функций                      | подключение, список чатов, создание чата, отправка, прием, статусы, удаление               |
+| Отправка методом SendMessage                   | `GreenApiClient.sendMessage` => `POST /waInstance{id}/sendMessage/{token}`                 |
+| Получение методом HTTP API                     | `GreenApiClient.receiveNotification` и `deleteNotification`, `src/hooks/useChatPolling.ts` |
+| React                                          | `src/main.tsx`                                                                             |
+
+Сверх прототипа добавлены два удобства, которые не обязательны: уведомления
+браузера о входящих и выход из аккаунта.
+
+## Как устроено
+
+**Получение сообщений.** Приложение висит на `ReceiveNotification` с
+`receiveTimeout` 25 секунд и держит запрос открытым. Пришедшее уведомление
+подтверждается через `DeleteNotification` по `receiptId` - без этого оно
+повторится. Подтверждение идемпотентно: если запрос уже отработал, повторный
+вызов по тому же `receiptId` не приводит к ошибке.
+
+**Идемпотентность на своей стороне.** Входящие события могут прийти повторно
+после переподключения, поэтому каждое отслеживается по `idMessage` и
+`stanzaId`, и дубли в ленте не появляются.
+
+**Оптимистичная отправка.** Исходящее появляется в ленте сразу со статусом
+«отправлено», а статус из вебхука обновляет его по `idMessage`. Если запрос
+упал, сообщение остается в ленте с ошибкой и его можно отправить повторно.
+
+**Хранение.** Список чатов, история и учетные данные лежат в `localStorage`.
+При выходе учетные данные стираются, история остается, чтобы не потерять
+переписку. Объем истории ограничен 300 сообщениями на чат.
+
+**Переподключение.** При обрыве связи polling повторяет попытки с
+нарастающей паузой и показывает статус в шапке чата.
+
+## Ограничения
+
+**Не проверялось на живом инстансе МАХ.** Приложение разрабатывалось и
+тестировалось на локальном моке GREEN-API, повторяющем формат ответов
+документации. На настоящем инстансе не запускалось, поэтому возможны
+расхождения. Это основное, что стоит проверить в первую очередь.
+
+**Риск CORS.** Браузер отправляет запросы с вашего домена на адрес GREEN-API.
+Если API не отдает `Access-Control-Allow-Origin` для этого домена, браузер
+заблокирует запрос и приложение покажет «Нет связи с GREEN-API». Обойти это
+из приложения нельзя, но можно указать адрес своего GREEN-API в поле «Адрес
+API».
+
+**Уведомления требуют HTTPS.** Notification API недоступен на http и
+localhost. Без HTTPS приложение работает, но не показывает уведомления.
+
+**Одна вкладка.** Вторая вкладка того же браузера, включая инкогнито,
+перехватывает входящие и перезаписывает историю в общем `localStorage`.
+Открывать нужно одну вкладку.
+
+**Удаление сообщений** работает, если мессенджер присылает уведомление
+`deletedMessage`. На живом инстансе это не проверено.
