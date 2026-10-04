@@ -38,7 +38,7 @@ export function ChatScreen({
   }, [chat.displayName, chat.phone])
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-md flex-col bg-max-canvas">
+    <main className="mx-auto flex min-h-svh w-full max-w-md flex-col border-x border-black/5 bg-max-canvas sm:border">
       <header className="flex items-center gap-2 border-b border-black/5 bg-max-surface px-3 py-2.5">
         <button
           type="button"

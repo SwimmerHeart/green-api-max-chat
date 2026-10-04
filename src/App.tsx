@@ -1,5 +1,5 @@
 import './index.css'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChatListScreen } from './components/ChatListScreen'
 import { ChatScreen } from './components/ChatScreen'
 import { ConnectScreen } from './components/ConnectScreen'
@@ -9,7 +9,10 @@ import type { Credentials } from './api/types'
 import { useAccountStatus } from './hooks/useAccountStatus'
 import type { MessagesUpdater } from './hooks/useChatPolling'
 import { useChatPolling } from './hooks/useChatPolling'
+import { getPermissionState, requestPermission, showNotification } from './lib/browserNotifications'
+import type { NotificationPermissionState } from './lib/browserNotifications'
 import {
+  clearCredentials,
   loadChats,
   loadCredentials,
   loadLastInstanceId,
@@ -51,6 +54,23 @@ function App() {
     [credentials],
   )
 
+  // Разрешение на уведомления может измениться в настройках браузера,
+  // поэтому состояние держим в приложении и синхронизируем при возврате на вкладку
+  const [notificationPermission, setNotificationPermission] =
+    useState<NotificationPermissionState>(getPermissionState)
+
+  useEffect(() => {
+    function syncPermission() {
+      setNotificationPermission(getPermissionState())
+    }
+
+    window.addEventListener('focus', syncPermission)
+
+    return () => {
+      window.removeEventListener('focus', syncPermission)
+    }
+  }, [])
+
   const { error: pollingError } = useChatPolling({
     client,
     activeChatId: activeChat?.chatId ?? null,
@@ -60,6 +80,16 @@ function App() {
   })
 
   const [storedInstanceId, setStoredInstanceId] = useState(idInstance)
+
+  // Список чатов нужен обработчику уведомления: клик по системному уведомлению
+  // приходит вне React, и там нельзя обратиться к состоянию напрямую
+  const chatsRef = useRef<Chat[]>(chats)
+
+  useEffect(() => {
+    chatsRef.current = chats
+  }, [chats])
+
+  const openChatByIdRef = useRef<(chatId: string) => void>(() => {})
 
   if (storedInstanceId !== idInstance) {
     setStoredInstanceId(idInstance)
@@ -80,7 +110,12 @@ function App() {
     })
   }
 
-  function handleIncoming(chatId: string, displayName: string | null, timestamp: number) {
+  function handleIncoming(
+    chatId: string,
+    displayName: string | null,
+    timestamp: number,
+    text: string,
+  ) {
     // Открытый чат сразу считаем прочитанным: человек его видит
     const isActive = activeChat?.chatId === chatId
 
@@ -108,6 +143,28 @@ function App() {
         ? previous
         : [...previous, createChatFromNotification(chatId, displayName, timestamp)],
     )
+
+    notifyAboutIncoming(chatId, displayName, text, isActive)
+  }
+
+  function notifyAboutIncoming(
+    chatId: string,
+    displayName: string | null,
+    text: string,
+    isActive: boolean,
+  ) {
+    if (isActive) return
+    if (!document.hidden) return
+
+    const known = chatsRef.current.find((chat) => chat.chatId === chatId)
+
+    showNotification({
+      // Без имени собеседника показываем номер, он узнаваемее, чем @c.us
+      title: displayName || known?.phone || chatId,
+      body: text,
+      tag: chatId,
+      onOpen: () => openChatByIdRef.current(chatId),
+    })
   }
 
   function handleStateChanged(state: string) {
@@ -182,6 +239,34 @@ function App() {
     [credentials],
   )
 
+  // Обработчик клика по уведомлению читает список чатов, а он меняется каждый раз,
+  // поэтому держим ссылку на актуальную функцию, а не создаем новую на каждый рендер
+  useEffect(() => {
+    openChatByIdRef.current = (chatId: string) => {
+      const found = chatsRef.current.find((chat) => chat.chatId === chatId)
+
+      if (found !== undefined) handleOpenChat(found)
+    }
+  }, [handleOpenChat])
+
+  // Выход из аккаунта: токен стираем, историю оставляем.
+  // Она привязана к инстансу, поэтому вернется, когда этот же аккаунт подключат снова
+  const handleLogout = useCallback(() => {
+    clearCredentials()
+
+    setCredentials(null)
+    setChats([])
+    setMessages({})
+    setActiveChat(null)
+    setScreen('list')
+    setNotice(null)
+    setIsSessionBroken(false)
+  }, [])
+
+  const handleRequestNotifications = useCallback(async () => {
+    setNotificationPermission(await requestPermission())
+  }, [])
+
   if (credentials === null || client === null)
     return <ConnectScreen onConnected={handleConnected} />
 
@@ -235,8 +320,11 @@ function App() {
       accountPhone={accountPhone}
       isForeignHistory={isForeignHistory}
       connectionError={pollingError}
+      notificationPermission={notificationPermission}
       onSelectChat={handleOpenChat}
       onCreateChat={() => setScreen('newChat')}
+      onLogout={handleLogout}
+      onRequestNotifications={handleRequestNotifications}
     />
   )
 }

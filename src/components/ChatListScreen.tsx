@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import type { NotificationPermissionState } from '../lib/browserNotifications'
 import { formatPhone } from '../lib/phone'
 import type { Chat, MessagesByChat } from '../types'
 
@@ -9,8 +11,11 @@ interface ChatListScreenProps {
   isForeignHistory: boolean
   // Текст ошибки поллинга, если связь с GREEN-API пропала
   connectionError: string | null
+  notificationPermission: NotificationPermissionState
   onSelectChat: (chat: Chat) => void
   onCreateChat: () => void
+  onLogout: () => void
+  onRequestNotifications: () => void
 }
 
 const timeFormatter = new Intl.DateTimeFormat('ru-RU', {
@@ -29,14 +34,29 @@ export function ChatListScreen({
   accountPhone,
   isForeignHistory,
   connectionError,
+  notificationPermission,
   onSelectChat,
   onCreateChat,
+  onLogout,
+  onRequestNotifications,
 }: ChatListScreenProps) {
+  const [isLogoutArmed, setIsLogoutArmed] = useState(false)
+
+  function handleLogoutClick() {
+    if (isLogoutArmed) {
+      setIsLogoutArmed(false)
+      onLogout()
+      return
+    }
+
+    setIsLogoutArmed(true)
+  }
+
   // Сортировка по последней активности, а не по дате создания
   const sortedChats = [...chats].sort((a, b) => b.updatedAt - a.updatedAt)
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-md flex-col bg-max-canvas">
+    <main className="mx-auto flex max-h-svh w-full max-w-md flex-col border-x border-black/5 bg-max-canvas sm:border">
       <header className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <h1 className="truncate text-lg font-semibold text-max-text">Чаты</h1>
@@ -44,14 +64,34 @@ export function ChatListScreen({
             <p className="truncate text-xs text-max-muted">{formatPhone(accountPhone)}</p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onCreateChat}
-          className="rounded-lg bg-max-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-max-accent-dark cursor-pointer"
-        >
-          Новый чат
-        </button>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={handleLogoutClick}
+            title="Выйти из аккаунта"
+            className={`rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer ${
+              isLogoutArmed
+                ? 'bg-max-danger text-white'
+                : 'text-max-muted hover:bg-max-danger/10 hover:text-max-danger'
+            }`}
+          >
+            {isLogoutArmed ? 'Точно выйти?' : 'Выйти'}
+          </button>
+
+          <button
+            type="button"
+            onClick={onCreateChat}
+            className="rounded-lg bg-max-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-max-accent-dark cursor-pointer"
+          >
+            Новый чат
+          </button>
+        </div>
       </header>
+
+      {notificationPermission !== 'unsupported' && (
+        <NotificationRow permission={notificationPermission} onRequest={onRequestNotifications} />
+      )}
 
       {connectionError !== null && (
         <p className="mx-4 mb-1 rounded-xl bg-max-danger/10 px-4 py-2 text-xs text-max-danger">
@@ -68,7 +108,7 @@ export function ChatListScreen({
           Чатов пока нет. Создай первый по номеру телефона.
         </p>
       ) : (
-        <ul className="flex flex-col gap-1 p-2">
+        <ul className="flex min-h-0 flex-col gap-1 overflow-y-auto p-2">
           {sortedChats.map((chat) => (
             <li key={chat.chatId}>
               <ChatRow
@@ -81,6 +121,41 @@ export function ChatListScreen({
         </ul>
       )}
     </main>
+  )
+}
+
+interface NotificationRowProps {
+  permission: NotificationPermissionState
+  onRequest: () => void
+}
+
+// Строка с системными уведомлениями. Показывается только когда браузер их умеет,
+// а включить их можно одним нажатием из этого обработчика
+function NotificationRow({ permission, onRequest }: NotificationRowProps) {
+  if (permission === 'granted') {
+    return (
+      <p className="mx-4 mb-1 rounded-xl bg-max-surface px-4 py-2 text-xs text-max-muted">
+        Уведомления включены: о новых сообщениях в закрытых чатах сообщим системно.
+      </p>
+    )
+  }
+
+  if (permission === 'denied') {
+    return (
+      <p className="mx-4 mb-1 rounded-xl bg-max-surface px-4 py-2 text-xs text-max-muted">
+        Браузер запретил уведомления. Разрешить их можно в настройках сайта.
+      </p>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onRequest}
+      className="mx-4 mb-1 rounded-xl bg-max-surface px-4 py-2 text-left text-xs text-max-accent transition-colors hover:bg-max-accent/10 cursor-pointer"
+    >
+      Включить уведомления о новых сообщениях
+    </button>
   )
 }
 

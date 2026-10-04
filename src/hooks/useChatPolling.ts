@@ -11,9 +11,7 @@ import {
 } from '../lib/notifications'
 import type { ChatMessage, MessagesByChat } from '../types'
 
-// Обновление состояния через функцию, а не через готовый объект.
-// Внутри одной отправки состояние меняется несколько раз подряд,
-// и если брать его из props, второе изменение увидит устаревшие данные
+// Обновление состояния через функцию, а не через готовый объект
 export type MessagesUpdater = (previous: MessagesByChat) => MessagesByChat
 
 interface UseChatPollingOptions {
@@ -22,8 +20,9 @@ interface UseChatPollingOptions {
   activeChatId: string | null
   onMessagesChange: (update: MessagesUpdater) => void
   // Вызывается на каждое входящее сообщение, чтобы App обновил чаты:
-  // время последнего сообщения, имя собеседника и счетчик непрочитанных
-  onIncoming: (chatId: string, displayName: string | null, timestamp: number) => void
+  // время последнего сообщения, имя собеседника и счетчик непрочитанных.
+  // Текст передаем, чтобы приложение могло показать его в уведомлении
+  onIncoming: (chatId: string, displayName: string | null, timestamp: number, text: string) => void
   // Вызывается на stateInstanceChanged с новым состоянием,
   // чтобы приложение могло вернуть экран подключения
   onStateChanged: (state: string) => void
@@ -141,7 +140,7 @@ export function useChatPolling({
         return { ...previous, [chatId]: [...list, message] }
       })
 
-      handlersRef.current.onIncoming(chatId, readDisplayName(body), message.timestamp)
+      handlersRef.current.onIncoming(chatId, readDisplayName(body), message.timestamp, text)
     }
 
     function applyDeletion(body: NotificationBody) {

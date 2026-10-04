@@ -41,7 +41,8 @@ export function NewChatScreen({ client, onCreated, onCancel }: NewChatScreenProp
       const now = Date.now()
       const title = formatPhone(phone)
 
-      const displayName = typeof result.username === 'string' && result.username.length > 0 ? result.username : null
+      const displayName =
+        typeof result.username === 'string' && result.username.length > 0 ? result.username : null
 
       onCreated({
         chatId: result.chatId,
@@ -60,7 +61,7 @@ export function NewChatScreen({ client, onCreated, onCancel }: NewChatScreenProp
   }
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-md flex-col bg-max-canvas">
+    <main className="mx-auto flex max-h-svh w-full max-w-md flex-col border-x border-black/5 bg-max-canvas sm:border">
       <header className="flex items-center gap-2 px-4 py-3">
         <button
           type="button"
@@ -72,7 +73,7 @@ export function NewChatScreen({ client, onCreated, onCancel }: NewChatScreenProp
         <h1 className="text-lg font-semibold text-max-text">Новый чат</h1>
       </header>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 p-4">
+      <form onSubmit={handleSubmit} className="flex min-h-0 flex-col gap-4 overflow-y-auto p-4">
         <label className="flex flex-col gap-1 text-sm text-max-text">
           Номер телефона
           <input
