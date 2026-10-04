@@ -8,6 +8,10 @@
 
 Демо: https://swimmerheart.github.io/green-api-max-chat/
 
+![Список чатов](docs/screenshots/02-chat-list.png)
+![Отправленное сообщение](docs/screenshots/04-sent.png)
+![Уведомление браузера о входящем](docs/screenshots/09-notification.png)
+
 ## Стек
 
 React 19, TypeScript, Vite, Tailwind CSS 4.
@@ -96,6 +100,24 @@ npm run preview        # предпросмотр сборки
 3. Создать чат по номеру телефона получателя. Номер проверяется методом
    `CheckAccount`, он же возвращает `chatId` для отправки.
 4. Написать сообщения. Входящие приходят в ленту автоматически.
+
+## Скриншоты
+
+Подключение к инстансу: адрес API, `idInstance` и токен.
+
+![Экран подключения](docs/screenshots/01-connect.png)
+
+Создание чата по номеру телефона получателя.
+
+![Создание чата](docs/screenshots/03-new-chat.png)
+
+Чат с открытым композером: поле ввода, счетчик символов, кнопка отправки.
+
+![Пустой чат](docs/screenshots/05-empty-chat.png)
+
+Выход из аккаунта с подтверждением.
+
+![Выход](docs/screenshots/10-logout.png)
 
 ## Требования задания
 
