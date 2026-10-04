@@ -9,6 +9,7 @@
   --color-max-danger: #e64646;
   --color-max-surface: #ffffff;
   --color-max-canvas: #f0f2f5;
+  --color-max-page: #e4e7ee;
 
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   --animate-bubble-in: bubble-in 0.25s ease-out;
@@ -29,6 +30,6 @@ body {
   margin: 0;
   font-family: var(--font-sans);
   color: var(--color-max-text);
-  background: var(--color-max-canvas);
+  background: var(--color-max-page);
   -webkit-font-smoothing: antialiased;
 }

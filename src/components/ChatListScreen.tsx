@@ -56,7 +56,7 @@ export function ChatListScreen({
   const sortedChats = [...chats].sort((a, b) => b.updatedAt - a.updatedAt)
 
   return (
-    <main className="mx-auto flex max-h-svh w-full max-w-md flex-col border-x border-black/5 bg-max-canvas sm:border">
+    <main className="mx-auto my-4 flex max-h-[calc(100svh-2rem)] w-full max-w-md flex-col border-x border-black/5 bg-max-canvas sm:my-6 sm:max-h-[calc(100svh-3rem)] sm:shadow-sm sm:ring-1 sm:ring-black/5">
       <header className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <h1 className="truncate text-lg font-semibold text-max-text">Чаты</h1>
