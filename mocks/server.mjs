@@ -7,6 +7,7 @@ const PORT = Number(process.env.MOCK_PORT ?? 8787)
 const ID_INSTANCE = '1100000001'
 const API_TOKEN = 'testToken'
 const ACCOUNT_PHONE = '79991234567'
+const ACCOUNT_CHAT_ID = '10000000'
 
 const MOCK_DIR = path.dirname(fileURLToPath(import.meta.url))
 const PID_FILE = path.join(MOCK_DIR, '.mock.pid')
@@ -49,14 +50,17 @@ function stopPreviousMock() {
   }
 }
 
-// Принимаем и голый номер, и 79991234567@c.us, и 123456789@lid
+// Принимаем и голый номер, и chatId, полученный от CheckAccount
 const peerOf = (chatId) => String(chatId).split('@')[0]
 
-// Номер на 9: аккаунта нет, checkWhatsapp вернет ошибку
+// Номер на 9: аккаунта нет, CheckAccount вернет exist: false
 const isMissingAccount = (chatId) => peerOf(chatId).endsWith('9')
 
 // Номер на 0: аккаунт вне MAX, при отправке придет noAccount
 const isOutsideMax = (chatId) => peerOf(chatId).endsWith('0')
+
+// В MAX идентификатор чата числовой, CheckAccount отдает его по номеру телефона
+const toChatId = (phoneNumber) => String(10000000 + (Number(phoneNumber) % 90000000))
 
 const notifications = []
 let messageCounter = 0
@@ -75,8 +79,8 @@ const cors = {
 
 const instanceData = {
   idInstance: Number(ID_INSTANCE),
-  wid: `${ACCOUNT_PHONE}@c.us`,
-  typeInstance: 'whatsapp',
+  wid: ACCOUNT_CHAT_ID,
+  typeInstance: 'max',
 }
 
 function send(res, status, body) {
@@ -170,7 +174,7 @@ function senderDataFor(chatId) {
 
   return {
     chatId,
-    sender: `${peer}@c.us`,
+    sender: chatId,
     chatName: name,
     senderName: name,
     senderContactName: '',
@@ -318,38 +322,32 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  // Метод проверки состояния инстанса называется getWaSettings
-  if (method === 'getWaSettings') {
+  // Метод проверки состояния инстанса называется getAccountSettings
+  if (method === 'getAccountSettings') {
     send(res, 200, {
       stateInstance: 'authorized',
       phone: ACCOUNT_PHONE,
       avatar: '',
-      chatId: `${ACCOUNT_PHONE}@c.us`,
-      historySyncProgress: 100,
+      chatId: ACCOUNT_CHAT_ID,
       logoutProcess: false,
     })
     return
   }
 
-  // Метод проверки номера называется checkWhatsapp и возвращает existsWhatsapp
-  if (method === 'checkWhatsapp') {
-    const { chatId } = await readBody(req)
+  // Метод проверки номера называется checkAccount и возвращает exist с chatId
+  if (method === 'checkAccount') {
+    const { phoneNumber } = await readBody(req)
 
-    if (typeof chatId !== 'string' || chatId.length === 0) {
-      sendError(res, 400, 'VALIDATION_FAILED', "Parameter 'chatId' is required")
+    if (typeof phoneNumber !== 'number' || !Number.isFinite(phoneNumber)) {
+      sendError(res, 400, 'VALIDATION_FAILED', "Parameter 'phoneNumber' is required")
       return
     }
 
-    // Аккаунта нет: настоящий API отвечает кодом 400
-    if (isMissingAccount(chatId)) {
-      sendError(res, 400, 'BAD_REQUEST', 'Account is not registered')
-      return
-    }
+    const exist = !isMissingAccount(phoneNumber)
 
     send(res, 200, {
-      existsWhatsapp: true,
-      chatId,
-      username: '',
+      exist,
+      chatId: exist ? toChatId(phoneNumber) : '',
       fromCache: false,
     })
     return
@@ -358,12 +356,12 @@ const server = http.createServer(async (req, res) => {
   if (method === 'sendMessage') {
     const { chatId, message } = await readBody(req)
 
-    if (!chatId || typeof message !== 'string' || message.length > 20000) {
+    if (!chatId || typeof message !== 'string' || message.length > 4000) {
       sendError(
         res,
         400,
         'VALIDATION_FAILED',
-        "Validation failed. Details: 'message' length must be less than or equal to 20000 characters long",
+        "Validation failed. Details: 'message' length must be less than or equal to 4000 characters long",
       )
       return
     }
@@ -485,7 +483,7 @@ server.listen(PORT, () => {
 
   console.log(`GREEN-API mock on http://localhost:${PORT}`)
   console.log(`idInstance: ${ID_INSTANCE}, apiTokenInstance: ${API_TOKEN}`)
-  console.log('Номер на 9: аккаунта нет, checkWhatsapp вернет ошибку')
+  console.log('Номер на 9: аккаунта нет, checkAccount вернет exist: false')
   console.log('Номер на 0: аккаунт вне MAX, при отправке придет noAccount')
   console.log('Служебное: POST /mock/reset, /mock/incoming, /mock/deleted, /mock/state')
 })

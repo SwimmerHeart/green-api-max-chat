@@ -159,7 +159,7 @@ function App() {
     const known = chatsRef.current.find((chat) => chat.chatId === chatId)
 
     showNotification({
-      // Без имени собеседника показываем номер, он узнаваемее, чем @c.us
+      // Без имени собеседника показываем номер: он узнаваемее, чем chatId
       title: displayName || known?.phone || chatId,
       body: text,
       tag: chatId,

@@ -42,7 +42,7 @@ export function ConnectScreen({ onConnected, initialCredentials, notice }: Conne
     })
 
     try {
-      const settings = await client.getWaSettings()
+      const settings = await client.getAccountSettings()
 
       if (settings.stateInstance !== 'authorized') {
         setError(

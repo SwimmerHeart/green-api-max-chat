@@ -1,9 +1,9 @@
 import type {
-  CheckWhatsappResult,
+  AccountSettings,
+  CheckAccountResult,
   Credentials,
   NotificationEnvelope,
   SendMessageResult,
-  WaSettings,
 } from './types'
 
 // Универсальный класс ошибок с GREEN-API: сетевых сбоев и ответов API с ошибкой
@@ -19,7 +19,7 @@ export class GreenApiError extends Error {
 
 type HttpMethod = 'GET' | 'POST' | 'DELETE'
 
-export const MAX_MESSAGE_LENGTH = 20000
+export const MAX_MESSAGE_LENGTH = 4000
 export const MIN_RECEIVE_TIMEOUT = 5
 
 interface RequestOptions {
@@ -121,15 +121,15 @@ export class GreenApiClient {
   }
 
   // Проверка доступов и состояния инстанса
-  getWaSettings(signal?: AbortSignal): Promise<WaSettings> {
-    return this.send<WaSettings>('getWaSettings', { method: 'GET', signal })
+  getAccountSettings(signal?: AbortSignal): Promise<AccountSettings> {
+    return this.send<AccountSettings>('getAccountSettings', { method: 'GET', signal })
   }
 
-  // Проверка доступности номера и получение chatId для чата
-  async checkWhatsapp(chatId: string, signal?: AbortSignal): Promise<CheckWhatsappResult> {
-    return this.send<CheckWhatsappResult>('checkWhatsapp', {
+  // Проверка наличия аккаунта MAX по номеру и получение chatId для чата
+  async checkAccount(phoneNumber: string, signal?: AbortSignal): Promise<CheckAccountResult> {
+    return this.send<CheckAccountResult>('checkAccount', {
       method: 'POST',
-      body: { chatId },
+      body: { phoneNumber: Number(phoneNumber) },
       signal,
     })
   }

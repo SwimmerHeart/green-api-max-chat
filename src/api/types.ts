@@ -8,25 +8,23 @@ export interface Credentials {
 export type InstanceState =
   'notAuthorized' | 'authorized' | 'blocked' | 'sleepMode' | 'starting' | 'suspended'
 
-// Ответ метода getWaSettings
-export interface WaSettings {
+// Ответ метода GetAccountSettings
+export interface AccountSettings {
   stateInstance: InstanceState
   // Телефон приходит строкой, в документации пример "0123456789"
   phone?: string
   avatar?: string
-  // При enableLidMode вместо номера приходит @lid
+  // Идентификатор собственного чата инстанса
   chatId?: string
-  historySyncProgress?: number
   // Только при stateInstance suspended, время в секундах UNIX
   suspendedUntil?: number
 }
 
-// Ответ метода checkWhatsapp
-// Вызывается перед созданием чата, чтобы убедиться, что номер доступен для переписки
-export interface CheckWhatsappResult {
-  existsWhatsapp: boolean
+// Ответ метода CheckAccount
+// Вызывается перед созданием чата, чтобы получить chatId по номеру телефона
+export interface CheckAccountResult {
+  exist: boolean
   chatId: string
-  username?: string
   fromCache?: boolean
 }
 

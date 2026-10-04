@@ -29,26 +29,22 @@ export function NewChatScreen({ client, onCreated, onCancel }: NewChatScreenProp
     setIsChecking(true)
 
     try {
-      // Идентификатор собираем в документированном формате номера с @c.us.
-      // Если у пользователя включен enableLidMode, API вернет другой формат, его сохраняем как есть
-      const result = await client.checkWhatsapp(`${normalized}@c.us`)
+      // По номеру получателя получаем chatId, который дальше используется в sendMessage и в разборе входящих уведомлений
+      const result = await client.checkAccount(String(normalized))
 
-      if (!result.existsWhatsapp) {
-        setError('Аккаунт на этом номере не найден')
+      if (!result.exist) {
+        setError('Аккаунт MAX на этом номере не зарегистрирован')
         return
       }
 
       const now = Date.now()
       const title = formatPhone(phone)
 
-      const displayName =
-        typeof result.username === 'string' && result.username.length > 0 ? result.username : null
-
       onCreated({
         chatId: result.chatId,
         phone: title,
         title,
-        displayName,
+        displayName: null,
         unread: 0,
         createdAt: now,
         updatedAt: now,

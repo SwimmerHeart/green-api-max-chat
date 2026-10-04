@@ -36,7 +36,7 @@ export function useAccountStatus(credentials: Credentials | null): AccountState 
 
     async function check() {
       try {
-        const settings = await client.getWaSettings(controller.signal)
+        const settings = await client.getAccountSettings(controller.signal)
         setResult({
           key: makeKey(target),
           isAuthorized: settings.stateInstance === 'authorized',
